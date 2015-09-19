@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	//"bytes"
 	"encoding/json"
 	"errors"
 	"github.com/nsqio/go-nsq"
@@ -10,7 +12,7 @@ import (
 	"sync"
 )
 
-var routeforbid = make(map[string]bool)
+var route = make(map[string]bool)
 
 var exitchan = make(chan bool)
 
@@ -30,12 +32,14 @@ var ccfg = nsq.NewConfig()
 
 var pcfg = nsq.NewConfig()
 
+//var bufscan = bufio.NewScanner(r)
+
 func HandleMessage(m *nsq.Message) error {
 	log.Println("New Msg")
 	msgchan <- m
 	return nil
 }
-func AddConsumer(addr string, topic string, channel string) error {
+func AddSource(addr string, topic string, channel string) error {
 	mutex.Lock()
 	log.Println(1)
 	if consumers[addr] != nil {
@@ -62,7 +66,7 @@ func AddConsumer(addr string, topic string, channel string) error {
 	return nil
 }
 
-func AddProducer(addr string) {
+func AddNode(addr string) {
 	mutex2.Lock()
 	if producers[addr] != nil {
 		log.Println("The Producer has existed")
@@ -79,8 +83,24 @@ func AddProducer(addr string) {
 	mutex2.Unlock()
 }
 
+func DelNode(addr string) {
+	//var pr *nsq.Producer
+	mutex2.Lock()
+	if producers[addr] != nil {
+		//pr = producers[addr]
+		producers[addr] = nil
+	}
+	mutex2.Unlock()
+	//pr = nil
+}
+
 func GetTopic(m *nsq.Message) string {
-	return "testing"
+	body := m.Body
+	a, b, _ := bufio.ScanLines(body, false)
+	//log.Println(a, string(b), c)
+	m.Body = m.Body[a:]
+	//bytes.TrimPrefix(m.Body, b)
+	return string(b)
 }
 
 func RouteMsg() {
@@ -89,7 +109,7 @@ func RouteMsg() {
 		t := GetTopic(m)
 		for k := range producers {
 			mutex3.Lock()
-			if routeforbid[k+t] == true {
+			if route[k+t] == false {
 				mutex3.Unlock()
 				continue
 			}
@@ -99,19 +119,19 @@ func RouteMsg() {
 	}
 }
 
-func Forbid(node string, topic string) {
+func DelTopic(node string, topic string) {
 	mutex3.Lock()
-	routeforbid[node+topic] = true
+	route[node+topic] = false
 	mutex3.Unlock()
 }
 
-func UnForbid(node string, topic string) {
+func AddTopic(node string, topic string) {
 	mutex3.Lock()
-	routeforbid[node+topic] = false
+	route[node+topic] = true
 	mutex3.Unlock()
 }
 
-func handleAddConsumer(w http.ResponseWriter, r *http.Request) {
+func handleAddSource(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		w.Write([]byte(err.Error()))
@@ -128,7 +148,7 @@ func handleAddConsumer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("Adding Consumer", v)
-	err = AddConsumer(v.Addr, v.Topic, v.Channel)
+	err = AddSource(v.Addr, v.Topic, v.Channel)
 	if err != nil {
 		w.Write([]byte(err.Error()))
 		return
@@ -137,7 +157,7 @@ func handleAddConsumer(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Success"))
 }
 
-func handleAddProducer(w http.ResponseWriter, r *http.Request) {
+func handleAddNode(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		w.Write([]byte(err.Error()))
@@ -151,11 +171,29 @@ func handleAddProducer(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
-	AddProducer(v.Addr)
+	AddNode(v.Addr)
 	w.Write([]byte("Success"))
 }
 
-func handleForbidNode(w http.ResponseWriter, r *http.Request) {
+func handleDelNode(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.Write([]byte(err.Error()))
+		return
+	}
+	var v = struct {
+		Addr string `json:addr`
+	}{}
+	err = json.Unmarshal(body, &v)
+	if err != nil {
+		w.Write([]byte(err.Error()))
+		return
+	}
+	DelNode(v.Addr)
+	w.Write([]byte("Success"))
+}
+
+func handleDelTopic(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		w.Write([]byte(err.Error()))
@@ -170,11 +208,11 @@ func handleForbidNode(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
-	Forbid(v.Addr, v.Topic)
+	DelTopic(v.Addr, v.Topic)
 	w.Write([]byte("Success"))
 }
 
-func handleUnForbidNode(w http.ResponseWriter, r *http.Request) {
+func handleAddTopic(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		w.Write([]byte(err.Error()))
@@ -189,7 +227,7 @@ func handleUnForbidNode(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
-	UnForbid(v.Addr, v.Topic)
+	AddTopic(v.Addr, v.Topic)
 	w.Write([]byte("Success"))
 }
 
@@ -202,10 +240,11 @@ func main() {
 
 	go func() {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/api/addconsumer", handleAddConsumer)
-		mux.HandleFunc("/api/addproducer", handleAddProducer)
-		mux.HandleFunc("/api/forbidnode", handleForbidNode)
-		mux.HandleFunc("/api/unforbidnode", handleUnForbidNode)
+		mux.HandleFunc("/api/addsource", handleAddSource)
+		mux.HandleFunc("/api/addnode", handleAddNode)
+		mux.HandleFunc("/api/delnode", handleDelNode)
+		mux.HandleFunc("/api/deltopic", handleDelTopic)
+		mux.HandleFunc("/api/addtopic", handleAddTopic)
 		mux.HandleFunc("/api/ping", ping)
 		http.ListenAndServe("0.0.0.0:3003", mux)
 	}()
