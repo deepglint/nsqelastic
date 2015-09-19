@@ -2,8 +2,14 @@ package models
 
 import (
 	//"log"
+	"errors"
 	"sync"
 )
+
+type TopicChannel struct {
+	Topic   string
+	Channel string
+}
 
 type NodeItem struct {
 	Ip       string
@@ -20,7 +26,8 @@ type TopicItem struct {
 type Node struct {
 	NodeItem
 	Topics []struct {
-		Channels []struct {
+		TopicName string
+		Channels  []struct {
 			ChanName string
 		}
 	}
@@ -52,4 +59,41 @@ func (this *BigTable) Get(key interface{}) interface{} {
 	tmp = (this.table)[key]
 	this.mutex.Unlock()
 	return tmp
+}
+
+func (this *BigTable) GetNodeItem(topic, channel string) (*NodeItem, error) {
+	key := TopicChannel{
+		Topic:   topic,
+		Channel: channel,
+	}
+	nodeInterface := this.Get(key)
+	if nodeInterface != nil {
+		nodePtr := new(NodeItem)
+		node, ok := nodeInterface.(NodeItem)
+		if ok {
+			*nodePtr = node
+			return nodePtr, nil
+		} else {
+			return nil, errors.New("convert error")
+		}
+
+	} else {
+		return nil, nil
+	}
+}
+
+func (this *BigTable) GetTopicItem(topic string) ([]TopicItem, error) {
+
+	itemsInterface := this.Get(topic)
+	if itemsInterface != nil {
+		items, ok := itemsInterface.([]TopicItem)
+		if ok {
+			return items, nil
+		} else {
+			return nil, errors.New("convert error")
+		}
+
+	} else {
+		return nil, nil
+	}
 }
