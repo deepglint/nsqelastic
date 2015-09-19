@@ -33,6 +33,7 @@ func main() {
 	}
 	nsqElastic := NewNsqElastic(config)
 	nsqElastic.WaitGroup.Wrap(func() { nsqElastic.HttpServe() })
+	nsqElastic.WaitGroup.Wait()
 }
 func NewNsqElastic(config *models.ConfigModel) *NsqElastic {
 	topicChan2NodeItemMap := models.NewTable()
