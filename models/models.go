@@ -5,6 +5,27 @@ import (
 	"sync"
 )
 
+type NodeItem struct {
+	Ip       string
+	Httpport int
+	Tcpport  int
+}
+
+type TopicItem struct {
+	TopicName string
+	NodeItem
+	Chancount int
+}
+
+type Node struct {
+	NodeItem
+	Topics []struct {
+		Channels []struct {
+			ChanName string
+		}
+	}
+}
+
 type BigTable struct {
 	mutex *sync.Mutex
 	table map[interface{}]interface{}
