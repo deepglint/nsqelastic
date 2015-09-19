@@ -35,20 +35,20 @@ type Node struct {
 
 type BigTable struct {
 	mutex *sync.Mutex
-	table map[interface{}]interface{}
+	Table map[interface{}]interface{}
 }
 
 func NewTable() *BigTable {
 	t := new(BigTable)
 	t.mutex = &sync.Mutex{}
-	t.table = make(map[interface{}]interface{})
+	t.Table = make(map[interface{}]interface{})
 	return t
 }
 
 func (this *BigTable) Update(key interface{}, val interface{}) {
 	this.mutex.Lock()
 	//if (*this.table)[key] != nil {
-	(this.table)[key] = val
+	(this.Table)[key] = val
 	//}
 	this.mutex.Unlock()
 }
@@ -56,9 +56,15 @@ func (this *BigTable) Update(key interface{}, val interface{}) {
 func (this *BigTable) Get(key interface{}) interface{} {
 	var tmp interface{}
 	this.mutex.Lock()
-	tmp = (this.table)[key]
+	tmp = (this.Table)[key]
 	this.mutex.Unlock()
 	return tmp
+}
+
+func (this *BigTable) Replace(other *BigTable) {
+	this.mutex.Lock()
+	this.Table = other.Table
+	this.mutex.Unlock()
 }
 
 func (this *BigTable) GetNodeItem(topic, channel string) (*NodeItem, error) {

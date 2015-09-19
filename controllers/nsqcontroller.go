@@ -25,7 +25,17 @@ func NewNsqController(config *models.ConfigModel, topicChan2NodeItemMap, topic2T
 	}
 	return c
 }
+func (n *NsqController) Debug(w http.ResponseWriter, r *http.Request) {
 
+	// jsonstr, err := json.Marshal(n)
+	// if err != nil {
+	// 	fmt.Fprint(w, fmt.Sprintf("%s", err.Error()))
+	// } else {
+	// 	fmt.Fprint(w, fmt.Sprintf("%s", jsonstr))
+
+	// }
+	fmt.Fprint(w, fmt.Sprintf("%s", n))
+}
 func (n *NsqController) Pub(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	//fmt.Printf("body%s %s\n", r.Method, string(body))
@@ -46,6 +56,7 @@ func (n *NsqController) Pub(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, fmt.Sprintf("%s", string(body)))
 }
+
 func (n *NsqController) Sub(w http.ResponseWriter, r *http.Request) {
 	//mapNTC := GetMapNTC()
 	var topic, channel string
