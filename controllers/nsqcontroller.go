@@ -59,6 +59,8 @@ func (n *NsqController) Pub(w http.ResponseWriter, r *http.Request) {
 
 func (n *NsqController) Sub(w http.ResponseWriter, r *http.Request) {
 	//mapNTC := GetMapNTC()
+	r.ParseForm()
+
 	var topic, channel string
 	if v, ok := r.Form["topic"]; ok {
 		topic = strings.Join(v, "")
