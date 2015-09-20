@@ -6,4 +6,6 @@ type ConfigModel struct {
 	LookupdAddr     string
 	MasterTopic     string
 	TopicMaxChannel int
+	N2n2Addr        string
+	NodeList        []string
 }

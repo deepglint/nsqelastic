@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,6 +22,7 @@ type NsqElastic struct {
 	TopicChan2NodeItemMap *models.BigTable
 	Topic2TopicItemMap    *models.BigTable
 	NodeItem2NodeMap      *models.BigTable
+	NodeSourceList        []models.NodeState
 }
 
 func main() {
@@ -30,6 +32,8 @@ func main() {
 		LookupdAddr:     "127.0.0.1:4161",
 		MasterTopic:     "master_topic",
 		TopicMaxChannel: 20,
+		N2n2Addr:        "127.0.0.1:3003", //[] int {1,2,3 }
+		NodeList:        []string{"127.0.0.1:4150/4151"},
 	}
 	nsqElastic := NewNsqElastic(config)
 	nsqElastic.WaitGroup.Wrap(func() { nsqElastic.HttpServe() })
@@ -40,18 +44,60 @@ func NewNsqElastic(config *models.ConfigModel) *NsqElastic {
 	topicChan2NodeItemMap := models.NewTable()
 	topic2TopicItemMap := models.NewTable()
 	nodeItem2NodeMap := models.NewTable()
-	c := controllers.NewNsqController(config, topicChan2NodeItemMap, topic2TopicItemMap, nodeItem2NodeMap)
+	nodeSourceList := make([]models.NodeState, 0)
+	c := controllers.NewNsqController(config, topicChan2NodeItemMap, topic2TopicItemMap, nodeItem2NodeMap, nodeSourceList)
 	n := &NsqElastic{
 		Config:                config,
 		HttpController:        c,
 		TopicChan2NodeItemMap: topicChan2NodeItemMap,
 		Topic2TopicItemMap:    topic2TopicItemMap,
 		NodeItem2NodeMap:      nodeItem2NodeMap,
+		NodeSourceList:        nodeSourceList,
+	}
+
+	for i := 0; i < len(config.NodeList); i++ {
+		err :=
+			n.addSourceByString(config.NodeList[i])
+		if err != nil {
+			n.logf(err.Error() + "\n")
+		}
 	}
 	n.logf("New NsqElastic")
 	return n
 }
-
+func (n *NsqElastic) addSourceByString(str string) error {
+	if n.NodeSourceList == nil {
+		n.NodeSourceList =
+			make([]models.NodeState, 0)
+	}
+	ipPorts := strings.Split(str, ":")
+	if len(ipPorts) < 2 {
+		return errors.New("error node source")
+	}
+	ip := ipPorts[0]
+	ports := strings.Split(ipPorts[1], "/")
+	if len(ports) < 2 {
+		return errors.New("error node source")
+	}
+	tcp := ports[0]
+	tcpInt, err := strconv.Atoi(tcp)
+	if err != nil {
+		return err
+	}
+	http := ports[1]
+	httpInt, err_ := strconv.Atoi(http)
+	if err_ != nil {
+		return err_
+	}
+	nodeState := models.NodeState{
+		NodeItem: models.NodeItem{Ip: ip,
+			Httpport: httpInt,
+			Tcpport:  tcpInt},
+		Stats: models.UNUSE,
+	}
+	n.NodeSourceList = append(n.NodeSourceList, nodeState)
+	return nil
+}
 func (this *NsqElastic) logf(f string, args ...interface{}) {
 	// if l.opts.Logger == nil {
 	// 	return
@@ -85,7 +131,7 @@ func (this *NsqElastic) LookupLoop() {
 }
 
 func (n *NsqElastic) lookupUpdate() error {
-
+	//todo : update sourceList
 	u, _ := url.Parse(fmt.Sprintf("http://%s/nodes", n.Config.LookupdAddr))
 	res, err := http.Get(u.String())
 	if err != nil {
@@ -117,6 +163,31 @@ func (n *NsqElastic) lookupUpdate() error {
 		item.Ip = nodes.Data.Producers[i].RemoteAddress
 		if strings.Contains(item.Ip, ":") {
 			item.Ip = strings.Split(item.Ip, ":")[0]
+		}
+		find := false
+		del := false
+		for loopi := 0; loopi < len(n.NodeSourceList); loopi++ {
+			if n.NodeSourceList[loopi].NodeItem.Eq(item) {
+				find = true
+
+				if n.NodeSourceList[loopi].Stats == models.DEL { //delete
+					del = true
+					break
+				} else {
+					n.NodeSourceList[loopi].Stats = models.USING
+				}
+			}
+
+		}
+		if !find {
+			nodeState := models.NodeState{
+				NodeItem: item,
+				Stats:    models.USING,
+			}
+			n.NodeSourceList = append(n.NodeSourceList, nodeState)
+		}
+		if del {
+			continue
 		}
 		//itemsList = append(models.NodeItem, item)
 		WaitGroup.Wrap(func() {
@@ -158,27 +229,40 @@ func (n *NsqElastic) nsqdUpdate(topicChan2NodeItemMap, topic2TopicItemMap, nodem
 	var onenode models.Node
 	onenode.NodeItem = nodeitem
 
+	if len(nodes.Data.Topics) <= 0 { //delete node
+		for i := 0; i < len(n.NodeSourceList); i++ {
+			if n.NodeSourceList[i].NodeItem.Eq(nodeitem) { //delete
+				n.NodeSourceList[i].Stats = models.DEL
+				break
+			}
+		}
+		return nil
+	}
 	for i := 0; i < len(nodes.Data.Topics); i++ {
-		var topicItem struct {
+		if len(nodes.Data.Topics[i].Channels) <= 0 { //delete topic
+			//todo:delete topic
+			continue
+		}
+		var nodeTopicItem struct {
 			TopicName string
 			Channels  []struct {
 				ChanName string
 			}
 		}
-		topicItem.TopicName = nodes.Data.Topics[i].TopicName
-		TopicItemMap := topic2TopicItemMap.Get(topicItem.TopicName)
+		nodeTopicItem.TopicName = nodes.Data.Topics[i].TopicName
+		TopicItemMap := topic2TopicItemMap.Get(nodeTopicItem.TopicName)
 		if TopicItemMap == nil {
 			tlist := make([]models.TopicItem, 0)
 			t := models.TopicItem{}
-			t.TopicName = topicItem.TopicName
+			t.TopicName = nodeTopicItem.TopicName
 			t.NodeItem = nodeitem
 			t.Chancount = len(nodes.Data.Topics[i].Channels)
 			tlist = append(tlist, t)
-			topic2TopicItemMap.Update(topicItem.TopicName, tlist)
+			topic2TopicItemMap.Update(nodeTopicItem.TopicName, tlist)
 		} else {
 			tlist, _ := TopicItemMap.([]models.TopicItem)
 			t := models.TopicItem{}
-			t.TopicName = topicItem.TopicName
+			t.TopicName = nodeTopicItem.TopicName
 			t.NodeItem = nodeitem
 			t.Chancount = len(nodes.Data.Topics[i].Channels)
 			tlist = append(tlist, t)
@@ -188,14 +272,14 @@ func (n *NsqElastic) nsqdUpdate(topicChan2NodeItemMap, topic2TopicItemMap, nodem
 				ChanName string
 			}
 			tc.ChanName = nodes.Data.Topics[i].Channels[ii].ChannelName
-			topicItem.Channels = append(topicItem.Channels, tc)
+			nodeTopicItem.Channels = append(nodeTopicItem.Channels, tc)
 			var tempTC models.TopicChannel
 			tempTC.Channel = tc.ChanName
-			tempTC.Topic = topicItem.TopicName
+			tempTC.Topic = nodeTopicItem.TopicName
 			topicChan2NodeItemMap.Update(tempTC, nodeitem)
 		}
 
-		onenode.Topics = append(onenode.Topics, topicItem)
+		onenode.Topics = append(onenode.Topics, nodeTopicItem)
 	}
 	nodemap.Update(nodeitem, onenode)
 	return nil

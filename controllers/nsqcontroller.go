@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	//"errors"
 	"fmt"
 	"github.com/deepglint/nsqelastic/models"
 	"io/ioutil"
@@ -14,14 +15,16 @@ type NsqController struct {
 	TopicChan2NodeItemMap *models.BigTable
 	Topic2TopicItemMap    *models.BigTable
 	NodeItem2NodeMap      *models.BigTable
+	NodeStats             []models.NodeState
 }
 
-func NewNsqController(config *models.ConfigModel, topicChan2NodeItemMap, topic2TopicItemMap, nodeItem2NodeMap *models.BigTable) *NsqController {
+func NewNsqController(config *models.ConfigModel, topicChan2NodeItemMap, topic2TopicItemMap, nodeItem2NodeMap *models.BigTable, nodeStats []models.NodeState) *NsqController {
 	c := &NsqController{
 		Config:                config,
 		TopicChan2NodeItemMap: topicChan2NodeItemMap,
 		Topic2TopicItemMap:    topic2TopicItemMap,
 		NodeItem2NodeMap:      nodeItem2NodeMap,
+		NodeStats:             nodeStats,
 	}
 	return c
 }
@@ -59,6 +62,7 @@ func (n *NsqController) Pub(w http.ResponseWriter, r *http.Request) {
 
 func (n *NsqController) Sub(w http.ResponseWriter, r *http.Request) {
 	//mapNTC := GetMapNTC()
+	r.ParseForm()
 	var topic, channel string
 	if v, ok := r.Form["topic"]; ok {
 		topic = strings.Join(v, "")
@@ -80,9 +84,10 @@ func (n *NsqController) Sub(w http.ResponseWriter, r *http.Request) {
 	if node != nil {
 		jsonstr, _ := json.Marshal(node)
 		fmt.Fprint(w, fmt.Sprintf("%s", jsonstr))
+		return
 	}
 	//check topic-node list if==nil or not all full select one almost full; if all is full, create new node;
-	topicitems, _err := n.TopicChan2NodeItemMap.GetTopicItem(topic)
+	topicitems, _err := n.Topic2TopicItemMap.GetTopicItem(topic)
 	if _err != nil {
 		fmt.Fprint(w, fmt.Sprintf("%s", _err))
 		return
@@ -90,15 +95,61 @@ func (n *NsqController) Sub(w http.ResponseWriter, r *http.Request) {
 	if topicitems != nil && n.isAllFull(topicitems) {
 		//todo:create new one
 		//jsonstr, _ := json.Marshal(topicitems)
-		fmt.Fprint(w, "create new one")
+		fmt.Fprint(w, "todo create new one")
 		return
-	} else {
+	} else if topicitems != nil {
 		node := n.selectMaxOne(topicitems)
 		jsonstr, _ := json.Marshal(node)
 		fmt.Fprint(w, fmt.Sprintf("%s", jsonstr))
 		return
+	} else {
+		node := n.NodeItem2NodeMap.GetMaxNodeItem(n.Config.TopicMaxChannel)
+		if node == nil {
+			//jsonstr, _ := json.Marshal(node)
+			fmt.Fprint(w, "not found")
+			return
+		} else {
+			jsonstr, _ := json.Marshal(node)
+			fmt.Fprint(w, fmt.Sprintf("%s", jsonstr))
+			return
+		}
+
 	}
-	return
+}
+
+func (n *NsqController) addNode() error {
+	// index := -1
+	// for i := 0; i < len(n.NodeStats); i++ {
+	// 	if n.NodeStats[i].Stats == models.UNUSE {
+	// 		index = i
+	// 		break
+	// 	}
+	// }
+	// if index == -1 {
+	// 	return errors.New("no new node")
+	// }
+	// var v = struct {
+	// 	Addr string `json:addr`
+	// }{}
+	// v.Addr = n.NodeStats[index].NodeItem.Ip + ":" + n.NodeStats[index].NodeItem.Tcpport
+	// b, err := json.Marshal(v)
+	// if err != nil {
+	// 	return err
+	// }
+	// resp, err := http.Post(fmt.Sprintf("http://%s/api/addnode", n.Config.N2n2Addr),
+	// 	"application/x-www-form-urlencoded",
+	// 	strings.NewReader(json.m))
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+
+	// defer resp.Body.Close()
+	// body, err = ioutil.ReadAll(resp.Body)
+	// if err != nil {
+	// 	// handle error
+	// }
+	// fmt.Fprint(w, fmt.Sprintf("%s", string(body)))
+	return nil
 }
 
 func (n *NsqController) isAllFull(items []models.TopicItem) bool {
@@ -113,7 +164,7 @@ func (n *NsqController) isAllFull(items []models.TopicItem) bool {
 func (n *NsqController) selectMaxOne(items []models.TopicItem) models.NodeItem {
 	max_index := 0
 	for i := 0; i < len(items); i++ {
-		if items[i].Chancount < n.Config.TopicMaxChannel && items[i].Chancount >= items[max_index].Chancount {
+		if items[i].Chancount < n.Config.TopicMaxChannel && items[i].Chancount > items[max_index].Chancount {
 			max_index = i
 		}
 	}

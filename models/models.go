@@ -17,20 +17,41 @@ type NodeItem struct {
 	Tcpport  int
 }
 
+func (n *NodeItem) Eq(t NodeItem) bool {
+	if n.Ip == t.Ip && (n.Httpport == t.Httpport || n.Tcpport == t.Tcpport) {
+		return true
+	}
+	return false
+}
+
 type TopicItem struct {
 	TopicName string
 	NodeItem
 	Chancount int
 }
 
+const (
+	UNUSE string = "unuse"
+	DEL   string = "delete"
+	USING string = "using"
+)
+
 type Node struct {
 	NodeItem
+	//Stats  string //"delete"
 	Topics []struct {
 		TopicName string
-		Channels  []struct {
+		//	Stats     string
+		Channels []struct {
+			//Stats    string
 			ChanName string
 		}
 	}
+}
+
+type NodeState struct {
+	NodeItem
+	Stats string //"unuse" ""
 }
 
 type BigTable struct {
@@ -102,4 +123,14 @@ func (this *BigTable) GetTopicItem(topic string) ([]TopicItem, error) {
 	} else {
 		return nil, nil
 	}
+}
+
+func (this *BigTable) GetMaxNodeItem(TopicMaxChannel int) *NodeItem {
+	var max *NodeItem
+	for k, _ := range this.Table {
+		max = new(NodeItem)
+		*max, _ = k.(NodeItem)
+		break
+	}
+	return max
 }
