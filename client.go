@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"github.com/deepglint/nsqelastic/models"
 	"github.com/franela/goreq"
 	"github.com/nsqio/go-nsq"
 	"log"
+	"strconv"
 )
 
 var (
@@ -27,9 +30,15 @@ func main() {
 	if err != nil {
 		log.Println(err.Error())
 	}
+	var v models.NodeItem
 	body, _ := res.Body.ToString()
 	log.Println(body)
+	err = json.Unmarshal([]byte(body), &v)
 
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	addr = v.Ip + ":" + strconv.Itoa(v.Tcpport)
 	consumer, err = nsq.NewConsumer(*topic, *channel, cfg)
 	if err != nil {
 		log.Fatal(err.Error())

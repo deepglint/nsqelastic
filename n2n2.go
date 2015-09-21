@@ -5,6 +5,7 @@ import (
 	//"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"github.com/nsqio/go-nsq"
 	"io/ioutil"
 	"log"
@@ -33,6 +34,7 @@ var ccfg = nsq.NewConfig()
 var pcfg = nsq.NewConfig()
 
 //var bufscan = bufio.NewScanner(r)
+var mainnode = flag.String("mainnode", "127.0.0.1:4152", "The Main Node")
 
 func HandleMessage(m *nsq.Message) error {
 	log.Println("New Msg")
@@ -108,6 +110,10 @@ func RouteMsg() {
 		m := <-msgchan
 		t := GetTopic(m)
 		for k := range producers {
+			if k == *mainnode {
+				producers[k].Publish(t, m.Body)
+				continue
+			}
 			mutex3.Lock()
 			if route[k+t] == false {
 				mutex3.Unlock()
@@ -120,12 +126,18 @@ func RouteMsg() {
 }
 
 func DelTopic(node string, topic string) {
+	if node == *mainnode {
+		return
+	}
 	mutex3.Lock()
 	route[node+topic] = false
 	mutex3.Unlock()
 }
 
 func AddTopic(node string, topic string) {
+	if node == *mainnode {
+		return
+	}
 	mutex3.Lock()
 	route[node+topic] = true
 	mutex3.Unlock()
@@ -235,7 +247,7 @@ func ping(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hello world"))
 }
 func main() {
-
+	flag.Parse()
 	go RouteMsg()
 
 	go func() {
